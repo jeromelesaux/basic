@@ -1,0 +1,21 @@
+10 REM > interrupts
+20 EVERY 50,0 GOSUB 100: REM > lowest priority
+30 EVERY 100,1 GOSUB 200
+40 EVERY 200,2 GOSUB 300:
+50 AFTER 1000,3 GOSUB 400: REM > highest priority
+60 WHILE flag=0
+70 a=a+1:print a
+80 WEND
+90 END
+100 REM #0
+110 PEN 2:PRINT "timer 0":PEN 1
+120 RETURN
+200 REM #1
+210 PEN 2:PRINT "timer 1":PEN 1
+220 RETURN
+300 REM #2
+310 PEN 2:PRINT "timer 2":PEN 1
+320 RETURN
+400 REM #3
+410 flag=1:PEN 2:PRINT "no more interrupts..."
+420 RETURN
