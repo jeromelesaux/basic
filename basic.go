@@ -2,7 +2,10 @@ package basic
 
 import (
 	"fmt"
+	"log"
 	"math"
+	"strconv"
+	"strings"
 	"unicode"
 )
 
@@ -83,6 +86,27 @@ func addWord(buf []byte, pos uint16, listing []byte, deprotect uint8) ([]byte, u
 		lenVar++
 	}
 	return listing, pos
+}
+
+func Parse(code string) ([]byte, error) {
+	var lines []string
+	l := strings.Split(code, "\n")
+	for _, v := range l {
+		n := strings.Split(v, ":")
+		lines = append(lines, n...)
+	}
+	for i, v := range lines {
+		// first byte must be a number
+		space := strings.Index(v, " ")
+		lineNumber, err := strconv.ParseUint(v[0:space], 10, 32)
+		if err != nil {
+			return []byte{}, fmt.Errorf("parsing numberline error line [%d][%s] error [%v]", i, v, err)
+		}
+
+		log.Printf("find line number %d", lineNumber)
+
+	}
+	return []byte{}, nil
 }
 
 func Basic(buf []byte, fileSize uint16, isBasic bool) []byte {
