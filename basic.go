@@ -104,6 +104,19 @@ type Line struct {
 	n      int // next space index value internal use
 }
 
+func (i *instruction) arguments(s string) []string {
+	v := strings.Split(s, ",")
+	var r []string
+	for _, v0 := range v {
+		l := strings.TrimLeft(v0, " ")
+		v1 := strings.TrimRight(l, " ")
+		if v1 != "" {
+			r = append(r, v1)
+		}
+	}
+	return r
+}
+
 func (l *Line) next() (string, error) {
 	if l.n >= len(l.raw) {
 		return "", eolErr
