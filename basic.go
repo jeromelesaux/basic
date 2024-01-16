@@ -1,6 +1,7 @@
 package basic
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -88,7 +89,112 @@ func addWord(buf []byte, pos uint16, listing []byte, deprotect uint8) ([]byte, u
 	return listing, pos
 }
 
+var (
+	eolErr = errors.New("eol")
+)
+
+type Listing struct {
+	lines []Line
+}
+
+type Line struct {
+	number int
+	i      []instruction
+	raw    string
+	n      int // next space index value internal use
+}
+
+func (l *Line) next() (string, error) {
+	if l.n >= len(l.raw) {
+		return "", eolErr
+	}
+
+	f := strings.Index(l.raw[l.n:], " ")
+	if f == -1 {
+		return "", eolErr
+	}
+	o := l.raw[l.n : l.n+f]
+	l.n += f + 1
+	return o, nil
+}
+
+func (l *Line) addKeyword(key string, values []string) {
+	l.i = append(l.i, instruction{
+		k: key,
+		v: values,
+	})
+}
+
+func (l *Line) addFunction(fun string, values []string) {
+	l.i = append(l.i, instruction{
+		f: fun,
+		v: values,
+	})
+}
+
+type instruction struct {
+	k string
+	f string
+	v []string
+}
+
+func isKeyword(s string) (string, bool) {
+	s = strings.ToUpper(s)
+	for _, v := range MotsClefs {
+		if s == v {
+			return v, true
+		}
+	}
+	return "", false
+}
+func isFunction(s string) (string, bool) {
+	s = strings.ToUpper(s)
+	for _, v := range Fcts {
+		if s == v {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+func (l *Line) parenthesis() (string, error) {
+	if l.n >= len(l.raw) {
+		return "", eolErr
+	}
+
+	s := strings.Index(l.raw[l.n:], "()")
+	if s == -1 {
+		return "", errors.New("no start parenthesis after function")
+	}
+	e := strings.Index(l.raw[s+l.n+1:], ")")
+	if e == -1 {
+		return "", errors.New("no end parenthesis after function")
+	}
+	o := l.raw[l.n+s+1 : l.n+s+e+1]
+	l.n += s + e + 1
+	return o, nil
+}
+
+func (l *Line) quote() (string, error) {
+	if l.n >= len(l.raw) {
+		return "", eolErr
+	}
+
+	s := strings.Index(l.raw[l.n:], "\"")
+	if s == -1 {
+		return "", errors.New("no start quote after keyword")
+	}
+	e := strings.Index(l.raw[s+l.n+1:], "\"")
+	if e == -1 {
+		return "", errors.New("no end quote after keyword")
+	}
+	o := l.raw[l.n+s+1 : l.n+s+e+1]
+	l.n += s + e + 1
+	return o, nil
+}
+
 func Parse(code string) ([]byte, error) {
+	var listing Listing
 	var lines []string
 	l := strings.Split(code, "\n")
 	for _, v := range l {
@@ -96,15 +202,51 @@ func Parse(code string) ([]byte, error) {
 		lines = append(lines, n...)
 	}
 	for i, v := range lines {
+		l := Line{raw: v}
 		// first byte must be a number
-		space := strings.Index(v, " ")
-		lineNumber, err := strconv.ParseUint(v[0:space], 10, 32)
+		number, err := l.next()
 		if err != nil {
 			return []byte{}, fmt.Errorf("parsing numberline error line [%d][%s] error [%v]", i, v, err)
 		}
-
+		lineNumber, err := strconv.ParseUint(number, 10, 32)
+		if err != nil {
+			return []byte{}, fmt.Errorf("parsing numberline error line [%d][%s] error [%v]", i, v, err)
+		}
 		log.Printf("find line number %d", lineNumber)
-
+		l.number = int(lineNumber)
+		for {
+			n, err := l.next()
+			if err != nil {
+				if errors.Is(err, eolErr) {
+					break
+				} else {
+					return []byte{}, fmt.Errorf("parsing error index [%d] error [%v]", i, err)
+				}
+			}
+			index := l.n
+			if key, ok := isKeyword(n); ok {
+				log.Printf("found keyword %s", key)
+				q, err := l.quote()
+				if err != nil {
+					return []byte{}, fmt.Errorf("parsing error index [%d] error [%v]", i, err)
+				}
+				l.addKeyword(key, []string{q})
+			} else {
+				l.n = index
+			}
+			index = l.n
+			if fun, ok := isFunction(n); ok {
+				log.Printf("found function %s", fun)
+				p, err := l.parenthesis()
+				if err != nil {
+					return []byte{}, fmt.Errorf("parsing error index [%d] error [%v]", i, err)
+				}
+				l.addFunction(fun, []string{p})
+			} else {
+				l.n = index
+			}
+		}
+		listing.lines = append(listing.lines, l)
 	}
 	return []byte{}, nil
 }
