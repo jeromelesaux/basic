@@ -71,7 +71,7 @@ func getByte(buf []byte, pos uint16, deprotect uint8) byte {
 func getWord(buf []byte, pos uint16, deprotect uint8) int {
 	ret := int(buf[pos] ^ (DproBasic[pos&0x7F] * deprotect))
 	pos++
-	ret += int(int(buf[pos])^int((DproBasic[pos&0x7F]*deprotect))) << 8
+	ret += (int(buf[pos]) ^ int((DproBasic[pos&0x7F] * deprotect))) << 8
 	return ret
 }
 
@@ -104,6 +104,7 @@ type Line struct {
 	n      int // next space index value internal use
 }
 
+// nolint: unused
 func (i *instruction) arguments(s string) []string {
 	v := strings.Split(s, ",")
 	var r []string
@@ -175,11 +176,11 @@ func (l *Line) parenthesis() (string, error) {
 		return "", eolErr
 	}
 
-	s := strings.Index(l.raw[l.n:], "()")
+	s := strings.Index(l.raw[l.n:], "(")
 	if s == -1 {
 		return "", errors.New("no start parenthesis after function")
 	}
-	e := strings.Index(l.raw[s+l.n+1:], ")")
+	e := strings.LastIndex(l.raw[s+l.n+1:], ")")
 	if e == -1 {
 		return "", errors.New("no end parenthesis after function")
 	}
@@ -206,27 +207,70 @@ func (l *Line) quote() (string, error) {
 	return o, nil
 }
 
-func Parse(code string) ([]byte, error) {
-	var listing Listing
-	var lines []string
+type LineParsed struct {
+	v         string
+	IsNewLine bool
+}
+
+func Split(code string) []LineParsed {
+
+	var lines []LineParsed
 	l := strings.Split(code, "\n")
 	for _, v := range l {
-		n := strings.Split(v, ":")
-		lines = append(lines, n...)
+		if in := strings.Contains(v, ":"); !in {
+			lines = append(lines, LineParsed{IsNewLine: true, v: v})
+		} else {
+			var inString bool
+			var first bool = true
+			var s, e int
+			for i, c := range v {
+				switch c {
+				case '"':
+					inString = !inString
+				case ':':
+					if inString {
+						continue
+					} else {
+						e = i
+						if first {
+							first = !first
+							lines = append(lines, LineParsed{v: v[s:e], IsNewLine: true})
+						} else {
+							lines = append(lines, LineParsed{v: v[s:e]})
+						}
+						s = e + 1
+					}
+				}
+			}
+			if e < len(v) {
+				lines = append(lines, LineParsed{v: v[s:]})
+			}
+		}
 	}
+	return lines
+}
+
+// nolint: funlen, gocognit
+func Parse(code string) ([]byte, error) {
+	var listing Listing
+
+	lines := Split(code)
+
 	for i, v := range lines {
-		l := Line{raw: v}
-		// first byte must be a number
-		number, err := l.next()
-		if err != nil {
-			return []byte{}, fmt.Errorf("parsing numberline error line [%d][%s] error [%v]", i, v, err)
+		l := Line{raw: v.v}
+		if v.IsNewLine {
+			// first byte must be a number
+			number, err := l.next()
+			if err != nil {
+				return []byte{}, fmt.Errorf("parsing numberline error line [%d][%s] error [%v]", i, v.v, err)
+			}
+			lineNumber, err := strconv.ParseUint(number, 10, 32)
+			if err != nil {
+				return []byte{}, fmt.Errorf("parsing numberline error line [%d][%s] error [%v]", i, v.v, err)
+			}
+			log.Printf("find line number %d", lineNumber)
+			l.number = int(lineNumber)
 		}
-		lineNumber, err := strconv.ParseUint(number, 10, 32)
-		if err != nil {
-			return []byte{}, fmt.Errorf("parsing numberline error line [%d][%s] error [%v]", i, v, err)
-		}
-		log.Printf("find line number %d", lineNumber)
-		l.number = int(lineNumber)
 		for {
 			n, err := l.next()
 			if err != nil {
@@ -239,7 +283,7 @@ func Parse(code string) ([]byte, error) {
 			index := l.n
 			if key, ok := isKeyword(n); ok {
 				log.Printf("found keyword %s", key)
-				q, err := l.quote()
+				q, err := l.quote() // not necessary between quotes
 				if err != nil {
 					return []byte{}, fmt.Errorf("parsing error index [%d] error [%v]", i, err)
 				}
@@ -264,6 +308,7 @@ func Parse(code string) ([]byte, error) {
 	return []byte{}, nil
 }
 
+// nolint: funlen, gocognit
 func Basic(buf []byte, fileSize uint16, isBasic bool) []byte {
 	var token, deprotect uint8
 	var pos uint16
